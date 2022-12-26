@@ -20,6 +20,14 @@
                         "description": "The imagename used by docker pull",
                         "type": "string"
                     },
+                    "mode": {
+                        "type": "string",
+                        "description": "The type of change that should trigger an update event.",
+                        "enum": [
+                            "any",
+                            "newTag"
+                        ]
+                    },
                     "actions": {
                         "description": "The hooks, that are called after an update is available, can be web- or mailhooks",
                         "type": ["array", "object"],

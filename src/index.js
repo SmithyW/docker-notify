@@ -159,10 +159,33 @@ const checkRepository = function (job, repoCache) {
                 checkUpdateDates(tagInfo, repository.tag);
             }).catch(logger.error);
         } else {
-            getRepositoryInfo(repository.user, repository.name).then(checkUpdateDates).catch((err) => {
-                logger.error('Error while fetching repo info: ', err);
-                reject();
-            });
+            if (!job.mode || job.mode === 'any') {
+                getRepositoryInfo(repository.user, repository.name).then(checkUpdateDates).catch((err) => {
+                    logger.error('Error while fetching repo info: ', err);
+                    reject();
+                });
+            }
+            else {
+                getTagInfo(repository.user, repository.name).then((tags) => {
+                    const repoTags = tags.filter((elem) => elem.name).map((elem) => elem.name);
+
+                    if (repoTags == undefined) {
+                        logger.error('Cannon find tag for repository: ', repository.name);
+                        return;
+                    }
+
+                    getRepositoryInfo(repository.user, repository.name).then((repoInfo) => {
+                        resolve({
+                            name: repoInfo.name,
+                            user: repoInfo.user,
+                            tag: repoInfo.tag ?? null,
+                            lastUpdated: repoInfo.last_updated,
+                            job: job,
+                            tags: repoTags
+                        });
+                    });
+                });
+            }
         }
     });
 };
@@ -187,7 +210,8 @@ const checkForUpdates = function () {
                 const cacheObj = {
                     user: res.user,
                     name: res.name,
-                    lastUpdated: res.lastUpdated
+                    lastUpdated: res.lastUpdated,
+                    tags: res.tags
                 };
 
                 if (res.tag) {
@@ -207,6 +231,23 @@ const checkForUpdates = function () {
                         updatedString: updatedString
                     });
                 }
+                else if (res.job.mode === 'newTag') {
+                    if (cache[key]?.tags) {
+                        const newTags = [];
+                        res.tags.forEach((tag) => {
+                            if (!cache[key].tags.includes(tag)) {
+                                newTags.push(tag);
+                            }
+                        });
+
+                        if (newTags.length > 0) {
+                            updatedRepos.push({
+                                job: res.job,
+                                updatedString: res.user == 'library' ? res.name : (res.user + '/' + res.name + ' (' + newTags + ')')
+                            });
+                        }
+                    }
+                }
             }
             Cache.writeCache(JSON.stringify(newCache)).then(() => {
                 if (updatedRepos.length > 0) {
@@ -216,7 +257,11 @@ const checkForUpdates = function () {
                             const message = webHook.httpBody;
                             Object.keys(message).forEach((key) => {
                                 if (typeof message[key] == 'string') {
-                                    message[key] = message[key].replace('$msg', 'Docker image \'' + o.updatedString + '\' was updated:\n' + JSON.stringify(o.job.image));
+                                    if (o.job.mode === 'newTag') {
+                                        message[key] = message[key].replace('$msg', 'New tags for \'' + o.updatedString + '\' available.');
+                                    } else {
+                                        message[key] = message[key].replace('$msg', 'Docker image \'' + o.updatedString + '\' was updated:\n' + JSON.stringify(o.job.image));
+                                    }
                                 }
                             });
 
